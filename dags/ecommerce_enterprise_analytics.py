@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta
 from airflow import DAG
 from airflow.providers.google.cloud.transfers.gcs_to_bigquery import GCSToBigQueryOperator
-from airflow.providers.google.cloud.operators.bigquery import BigQueryExecuteQueryOperator
+from airflow.providers.google.cloud.operators.bigquery import BigQueryInsertJobOperator
 from airflow.providers.google.cloud.operators.dataplex import DataplexCreateTaskOperator
 
 default_args = {
@@ -75,7 +75,7 @@ with DAG(
     )
 
     # 3. TRANSFORMACIÓN: Plata (Staging) - Versión robusta con deduplicación por ventana
-    transform_to_staging = BigQueryExecuteQueryOperator(
+    transform_to_staging = BigQueryInsertJobOperator(
         task_id='transform_raw_to_staging',
         sql="""
                 CREATE OR REPLACE TABLE `enterprise-analytics-rgo.staging_ecommerce.cleaned_transactions` AS
@@ -103,7 +103,7 @@ with DAG(
     )
 
     # 4. AGREGACIÓN: Oro (Semantic)
-    generate_semantic_gold = BigQueryExecuteQueryOperator(
+    generate_semantic_gold = BigQueryInsertJobOperator(
         task_id='generate_marketing_roi_gold',
         sql="""
             CREATE OR REPLACE TABLE `enterprise-analytics-rgo.gold_ecommerce.marketing_roi_dashboard` AS
