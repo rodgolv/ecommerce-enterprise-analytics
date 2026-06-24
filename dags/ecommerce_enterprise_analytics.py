@@ -74,19 +74,31 @@ with DAG(
         }
     )
 
-    # 3. TRANSFORMACIÓN: Plata (Staging)
+    # 3. TRANSFORMACIÓN: Plata (Staging) - Versión robusta con deduplicación por ventana
     transform_to_staging = BigQueryExecuteQueryOperator(
         task_id='transform_raw_to_staging',
         sql="""
-            CREATE OR REPLACE TABLE `enterprise-analytics-rgo.staging_ecommerce.cleaned_transactions` AS
-            SELECT 
-                DISTINCT order_id,
-                LOWER(customer_email) as customer_email,
-                CAST(amount AS FLOAT64) as amount,
-                PARSE_DATE('%Y-%m-%d', transaction_date) as transaction_date
-            FROM `enterprise-analytics-rgo.raw_ecommerce.transactions`
-            WHERE amount > 0 AND customer_email LIKE '%@%';
-        """,
+                CREATE OR REPLACE TABLE `enterprise-analytics-rgo.staging_ecommerce.cleaned_transactions` AS
+                WITH deduplicated_transactions AS (
+                    SELECT 
+                        *,
+                        ROW_NUMBER() OVER(
+                            PARTITION BY order_id 
+                            ORDER BY transaction_date DESC
+                        ) as row_num
+                    FROM `enterprise-analytics-rgo.raw_ecommerce.transactions`
+                )
+                SELECT 
+                    order_id,
+                    LOWER(customer_email) as customer_email,
+                    CAST(amount AS FLOAT64) as amount,
+                    PARSE_DATE('%Y-%m-%d', transaction_date) as transaction_date
+                FROM deduplicated_transactions
+                WHERE 
+                    row_num = 1 
+                    AND amount > 0 
+                    AND customer_email LIKE '%@%';
+            """,
         use_legacy_sql=False,
     )
 
