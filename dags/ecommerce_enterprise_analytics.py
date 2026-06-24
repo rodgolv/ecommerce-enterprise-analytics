@@ -2,7 +2,7 @@ from datetime import datetime, timedelta
 from airflow import DAG
 from airflow.providers.google.cloud.transfers.gcs_to_bigquery import GCSToBigQueryOperator
 from airflow.providers.google.cloud.operators.bigquery import BigQueryInsertJobOperator
-from airflow.providers.google.cloud.operators.dataplex import DataplexCreateTaskOperator
+from airflow.providers.google.cloud.operators.dataplex import DataplexCreateDataScanOperator
 
 default_args = {
     'owner': 'data_engineering_team',
@@ -55,20 +55,30 @@ with DAG(
         skip_leading_rows=1,
     )
 
-    # 2. GOBIERNO Y CALIDAD: Dataplex
-    run_dataplex_quality_check = DataplexCreateTaskOperator(
+    # 2. GOBIERNO Y CALIDAD: Dataplex (DataScan nativo)
+    run_dataplex_quality_check = DataplexCreateDataScanOperator(
         task_id='run_dataplex_data_quality',
         project_id='enterprise-analytics-rgo',
         region='us-central1',
-        dataplex_task_id='dq-scan-raw-tables',
-        lake_id='ecommerce-data-lake',
+        data_scan_id='dq-scan-raw-{{ logical_date.strftime("%Y%m%d%H%M%S") }}',
         body={
-            "trigger_spec": {"type": "ON_DEMAND"},
+            "data": {
+                "resource": "//bigquery.googleapis.com/projects/enterprise-analytics-rgo/datasets/raw_ecommerce/tables/transactions"
+            },
             "data_quality_spec": {
                 "rules": [
-                    {"column": "order_id", "rule": {"non_null_expectation": {}}},
-                    {"column": "amount", "rule": {"range_expectation": {"min_value": "0.01"}}},
-                    {"column": "customer_email", "rule": {"regex_expectation": {"regex": "^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$"}}}
+                    {
+                        "column": "order_id",
+                        "non_null_expectation": {}
+                    },
+                    {
+                        "column": "amount",
+                        "range_expectation": {"min_value": "0.01"}
+                    },
+                    {
+                        "column": "customer_email",
+                        "regex_expectation": {"regex": "^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$"}
+                    }
                 ]
             }
         }
