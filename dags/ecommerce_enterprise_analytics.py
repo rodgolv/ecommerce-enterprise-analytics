@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta
 from airflow import DAG
 from airflow.providers.google.cloud.transfers.gcs_to_bigquery import GCSToBigQueryOperator
-from airflow.providers.google.cloud.operators.bigquery import BigQueryExecuteQueryOperator
+from airflow.providers.google.cloud.operators.bigquery import BigQueryInsertJobOperator
 from airflow.providers.google.cloud.operators.dataplex import DataplexCreateTaskOperator
 
 default_args = {
@@ -74,68 +74,76 @@ with DAG(
         }
     )
 
-    # 3. TRANSFORMACIÓN: Plata (Staging) usando ExecuteQuery (Sintaxis directa y limpia)
-    transform_to_staging = BigQueryExecuteQueryOperator(
+    # 3. TRANSFORMACIÓN: Plata (Staging)
+    transform_to_staging = BigQueryInsertJobOperator(
         task_id='transform_raw_to_staging',
-        sql="""
-            CREATE OR REPLACE TABLE `enterprise-analytics-rgo.staging_ecommerce.cleaned_transactions` AS
-            WITH deduplicated_transactions AS (
-                SELECT 
-                    *,
-                    ROW_NUMBER() OVER(
-                        PARTITION BY order_id 
-                        ORDER BY transaction_date DESC
-                    ) as row_num
-                FROM `enterprise-analytics-rgo.raw_ecommerce.transactions`
-            )
-            SELECT 
-                order_id,
-                LOWER(customer_email) as customer_email,
-                CAST(amount AS FLOAT64) as amount,
-                PARSE_DATE('%Y-%m-%d', transaction_date) as transaction_date
-            FROM deduplicated_transactions
-            WHERE 
-                row_num = 1 
-                AND amount > 0 
-                AND customer_email LIKE '%@%';
-        """,
-        use_legacy_sql=False,
+        configuration={
+            "query": {
+                "query": """
+                    CREATE OR REPLACE TABLE `enterprise-analytics-rgo.staging_ecommerce.cleaned_transactions` AS
+                    WITH deduplicated_transactions AS (
+                        SELECT 
+                            *,
+                            ROW_NUMBER() OVER(
+                                PARTITION BY order_id 
+                                ORDER BY transaction_date DESC
+                            ) as row_num
+                        FROM `enterprise-analytics-rgo.raw_ecommerce.transactions`
+                    )
+                    SELECT 
+                        order_id,
+                        LOWER(customer_email) as customer_email,
+                        CAST(amount AS FLOAT64) as amount,
+                        PARSE_DATE('%Y-%m-%d', transaction_date) as transaction_date
+                    FROM deduplicated_transactions
+                    WHERE 
+                        row_num = 1 
+                        AND amount > 0 
+                        AND customer_email LIKE '%@%';
+                """,
+                "useLegacySql": False,
+            }
+        }
     )
 
-    # 4. AGREGACIÓN: Oro (Semantic) usando ExecuteQuery
-    generate_semantic_gold = BigQueryExecuteQueryOperator(
+    # 4. AGREGACIÓN: Oro (Semantic)
+    generate_semantic_gold = BigQueryInsertJobOperator(
         task_id='generate_marketing_roi_gold',
-        sql="""
-            CREATE OR REPLACE TABLE `enterprise-analytics-rgo.gold_ecommerce.marketing_roi_dashboard` AS
-            WITH aggregated_sales AS (
-                SELECT 
-                    transaction_date as date,
-                    SUM(amount) as total_revenue,
-                    COUNT(order_id) as total_orders
-                FROM `enterprise-analytics-rgo.staging_ecommerce.cleaned_transactions`
-                GROUP BY transaction_date
-            ),
-            marketing_efforts AS (
-                SELECT 
-                    PARSE_DATE('%Y-%m-%d', date) as date,
-                    SUM(ad_spend) as total_spend,
-                    SUM(clicks) as total_clicks,
-                    SUM(conversions) as total_conversions
-                FROM `enterprise-analytics-rgo.raw_ecommerce.marketing_performance`
-                GROUP BY PARSE_DATE('%Y-%m-%d', date)
-            )
-            SELECT 
-                s.date,
-                s.total_revenue,
-                s.total_orders,
-                m.total_spend,
-                m.total_clicks,
-                m.total_conversions,
-                SAFE_DIVIDE(s.total_revenue, m.total_spend) as ROAS
-            FROM aggregated_sales s
-            INNER JOIN marketing_efforts m ON s.date = m.date;
-        """,
-        use_legacy_sql=False,
+        configuration={
+            "query": {
+                "query": """
+                    CREATE OR REPLACE TABLE `enterprise-analytics-rgo.gold_ecommerce.marketing_roi_dashboard` AS
+                    WITH aggregated_sales AS (
+                        SELECT 
+                            transaction_date as date,
+                            SUM(amount) as total_revenue,
+                            COUNT(order_id) as total_orders
+                        FROM `enterprise-analytics-rgo.staging_ecommerce.cleaned_transactions`
+                        GROUP BY transaction_date
+                    ),
+                    marketing_efforts AS (
+                        SELECT 
+                            PARSE_DATE('%Y-%m-%d', date) as date,
+                            SUM(ad_spend) as total_spend,
+                            SUM(clicks) as total_clicks,
+                            SUM(conversions) as total_conversions
+                        FROM `enterprise-analytics-rgo.raw_ecommerce.marketing_performance`
+                        GROUP BY PARSE_DATE('%Y-%m-%d', date)
+                    )
+                    SELECT 
+                        s.date,
+                        s.total_revenue,
+                        s.total_orders,
+                        m.total_spend,
+                        m.total_clicks,
+                        m.total_conversions,
+                        SAFE_DIVIDE(s.total_revenue, m.total_spend) as ROAS
+                    FROM aggregated_sales s
+                    INNER JOIN marketing_efforts m ON s.date = m.date;
+                """,
+                "useLegacySql": False,
+            }
+        }
     )
 
     # Grafo de dependencias
