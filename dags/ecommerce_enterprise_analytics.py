@@ -55,20 +55,21 @@ with DAG(
         skip_leading_rows=1,
     )
 
-    # 2. GOBIERNO Y CALIDAD: Dataplex
+    # 2. GOBIERNO Y CALIDAD: Dataplex - Versión corregida con los parámetros requeridos
     run_dataplex_quality_check = DataplexCreateTaskOperator(
         task_id='run_dataplex_data_quality',
         project_id='enterprise-analytics-rgo',
-        location='us-central1',
+        region='us-central1',  # Cambiado/Asegurado a 'region'
+        dataplex_task_id='dq-scan-raw-tables',  # Cambiado de task_id_to_create a dataplex_task_id
         lake_id='ecommerce-data-lake',
-        task_id_to_create='dq-scan-raw-tables',
         body={
             "trigger_spec": {"type": "ON_DEMAND"},
             "data_quality_spec": {
                 "rules": [
                     {"column": "order_id", "rule": {"non_null_expectation": {}}},
                     {"column": "amount", "rule": {"range_expectation": {"min_value": "0.01"}}},
-                    {"column": "customer_email", "rule": {"regex_expectation": {"regex": "^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$"}}}
+                    {"column": "customer_email",
+                     "rule": {"regex_expectation": {"regex": "^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$"}}}
                 ]
             }
         }
