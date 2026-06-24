@@ -2,7 +2,6 @@ from datetime import datetime, timedelta
 from airflow import DAG
 from airflow.providers.google.cloud.transfers.gcs_to_bigquery import GCSToBigQueryOperator
 from airflow.providers.google.cloud.operators.bigquery import BigQueryInsertJobOperator
-from airflow.providers.google.cloud.operators.dataplex import DataplexCreateDataScanOperator
 
 default_args = {
     'owner': 'data_engineering_team',
@@ -15,11 +14,11 @@ default_args = {
 with DAG(
     dag_id='enterprise_analytics_ecommerce_v1',
     default_args=default_args,
-    description='Pipeline de orquestación avanzada con gobierno y calidad de datos en GCP',
+    description='Pipeline de orquestación avanzada en GCP',
     schedule_interval='@daily',
     start_date=datetime(2026, 1, 1),
     catchup=False,
-    tags=['ecommerce', 'marketing', 'dataplex', 'bigquery'],
+    tags=['ecommerce', 'marketing', 'bigquery'],
 ) as dag:
 
     # 1. INGESTA: Transacciones
@@ -55,36 +54,7 @@ with DAG(
         skip_leading_rows=1,
     )
 
-    # 2. GOBIERNO Y CALIDAD: Dataplex (DataScan nativo)
-    run_dataplex_quality_check = DataplexCreateDataScanOperator(
-        task_id='run_dataplex_data_quality',
-        project_id='enterprise-analytics-rgo',
-        region='us-central1',
-        data_scan_id='dq-scan-raw-{{ logical_date.strftime("%Y%m%d%H%M%S") }}',
-        body={
-            "data": {
-                "resource": "//bigquery.googleapis.com/projects/enterprise-analytics-rgo/datasets/raw_ecommerce/tables/transactions"
-            },
-            "data_quality_spec": {
-                "rules": [
-                    {
-                        "column": "order_id",
-                        "non_null_expectation": {}
-                    },
-                    {
-                        "column": "amount",
-                        "range_expectation": {"min_value": "0.01"}
-                    },
-                    {
-                        "column": "customer_email",
-                        "regex_expectation": {"regex": "^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$"}
-                    }
-                ]
-            }
-        }
-    )
-
-    # 3. TRANSFORMACIÓN: Plata (Staging)
+    # 2. TRANSFORMACIÓN: Plata (Staging)
     transform_to_staging = BigQueryInsertJobOperator(
         task_id='transform_raw_to_staging',
         configuration={
@@ -116,7 +86,7 @@ with DAG(
         }
     )
 
-    # 4. AGREGACIÓN: Oro (Semantic)
+    # 3. AGREGACIÓN: Oro (Semantic)
     generate_semantic_gold = BigQueryInsertJobOperator(
         task_id='generate_marketing_roi_gold',
         configuration={
@@ -156,6 +126,5 @@ with DAG(
         }
     )
 
-    # Grafo de dependencias
-    [ingest_transactions_raw, ingest_marketing_raw] >> run_dataplex_quality_check
-    run_dataplex_quality_check >> transform_to_staging >> generate_semantic_gold
+    # Grafo de dependencias limpio
+    [ingest_transactions_raw, ingest_marketing_raw] >> transform_to_staging >> generate_semantic_gold
